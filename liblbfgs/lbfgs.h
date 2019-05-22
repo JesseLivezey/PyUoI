@@ -73,6 +73,7 @@ typedef double lbfgsfloatval_t;
  */
 enum {
     /** L-BFGS reaches convergence. */
+    LBFGS_ALLZERO = -2048,
     LBFGS_SUCCESS = 0,
     LBFGS_CONVERGENCE = 0,
     LBFGS_STOP,

@@ -19,6 +19,7 @@ ctypedef enum LineSearchAlgo :
     LBFGS_LINESEARCH_BACKTRACKING_STRONG_WOLFE = 3,
 
 ctypedef enum ReturnCode:
+    LBFGS_ALLZERO = -2048,
     LBFGS_SUCCESS = 0,
     LBFGS_CONVERGENCE = 0,
     LBFGS_STOP,
@@ -220,6 +221,9 @@ _ERROR_MESSAGES = {
 class LBFGSError(Exception):
     pass
 
+class AllZeroLBFGSError(Exception):
+    pass
+
 
 cdef class LBFGS(object):
     """LBFGS algorithm, wrapped in a class to permit setting parameters"""
@@ -409,6 +413,8 @@ cdef class LBFGS(object):
                 return x_array.reshape(x0.shape)
             elif r == LBFGSERR_OUTOFMEMORY:
                 raise MemoryError
+            elif r == LBFGS_ALLZERO:
+                raise AllZeroLBFGSError
             else:
                 raise LBFGSError(_ERROR_MESSAGES[r])
 

@@ -23,7 +23,7 @@ import numpy as np
 
 from .base import AbstractUoILinearClassifier
 from ..utils import sigmoid, softmax
-from ..lbfgs import fmin_lbfgs
+from ..lbfgs import fmin_lbfgs, AllZeroLBFGSError
 
 
 class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
@@ -79,7 +79,7 @@ class UoI_L1Logistic(AbstractUoILinearClassifier, LogisticRegression):
 
     def get_reg_params(self, X, y):
         if self.Cs is None:
-            self.Cs = l1_min_c(X, y, loss='log') * np.logspace(0, 7, self.n_C)
+            self.Cs = l1_min_c(X, y, loss='log') * np.logspace(2, 7, self.n_C)
         ret = list()
         for c in self.Cs:
             ret.append(dict(C=c))
@@ -529,6 +529,8 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
             Y_multi = np.hstack([1 - Y_multi, Y_multi])
         w0 = np.zeros((classes.size, n_features + int(fit_intercept)),
                       dtype=X.dtype)
+        w0[:, -1] = LogisticInterceptFitterNoFeatures(y,
+                classes.size).intercept_
 
     if coef is not None:
         # it must work both giving the bias term and not
@@ -607,11 +609,28 @@ def _logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 args=(X, target, 1. / C, coef_mask, sample_weight),
                 iprint=iprint, pgtol=tol, maxiter=max_iter)
         else:
-            w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
-                            args=(X, target, 0., coef_mask, sample_weight),
-                            max_iterations=max_iter,
-                            epsilon=tol,
-                            orthantwise_end=coef_size)
+            zeros_seen = [0]
+            def zero_coef(x, *args):
+                if multi_class == 'multinomial':
+                    x = x.reshape(-1, classes.size)[:-1]
+                else:
+                    x = x[:-1]
+                now_zeros = np.array_equiv(x, 0.)
+                if now_zeros:
+                    zeros_seen[0] += 1
+                else:
+                    zeros_seen[0] = 0
+                if zeros_seen[0] > 1:
+                    return -2048
+            try:
+                w0 = fmin_lbfgs(func, w0, orthantwise_c=1. / C,
+                                args=(X, target, 0., coef_mask, sample_weight),
+                                max_iterations=max_iter,
+                                epsilon=tol,
+                                orthantwise_end=coef_size,
+                                progress=zero_coef)
+            except AllZeroLBFGSError:
+                w0 *= 0.
             info = None
         if info is not None and info["warnflag"] == 1:
             warnings.warn("lbfgs failed to converge. Increase the number "
@@ -691,6 +710,8 @@ def _logistic_loss_and_grad(w, X, y, alpha, mask, sample_weight=None):
     # Case where we fit the intercept.
     if grad.shape[0] > n_features:
         grad[-1] = z0.sum()
+    out /= X.shape[0]
+    grad /= X.shape[0]
     return out, grad
 
 
@@ -743,4 +764,6 @@ def _multinomial_loss_grad(w, X, Y, alpha, mask, sample_weight):
         grad[:, :n_features] *= mask
     if fit_intercept:
         grad[:, -1] = diff.sum(axis=0)
+    loss /= X.shape[0]
+    grad /= X.shape[0]
     return loss, grad.ravel(), p
